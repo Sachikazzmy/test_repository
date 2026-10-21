@@ -1,0 +1,307 @@
+package fingerprint
+
+import (
+	"bytes"
+	"regexp"
+	"strings"
+)
+
+var (
+	sshVersion        = regexp.MustCompile(`^OpenSSH_([0-9][A-Za-z0-9.+_-]*)$`)
+	versionToken      = regexp.MustCompile(`^[0-9]+(?:\.[0-9]+)+(?:[A-Za-z][A-Za-z0-9.+_-]*)?$`)
+	distroMarker      = regexp.MustCompile(`(?i)(?:^|[^a-z])(ubuntu|debian)(?:-[a-z0-9.]+)?(?:$|[^a-z])`)
+	redisCommandError = regexp.MustCompile(`(?i)^-ERR wrong number of arguments for ['"][A-Za-z0-9_-]+['"] command(?:\r?\n)?$`)
+)
+
+func sshMatch(s string) (match, bool) {
+	line := cleanLine(strings.SplitN(s, "\n", 2)[0])
+	if !strings.HasPrefix(line, "SSH-") {
+		return match{}, false
+	}
+	if !(strings.HasPrefix(line, "SSH-2.0-") || strings.HasPrefix(line, "SSH-1.99-")) {
+		return match{}, false
+	}
+	parts := strings.SplitN(line, "-", 3)
+	if len(parts) != 3 || (parts[1] != "2.0" && parts[1] != "1.99") {
+		return match{}, false
+	}
+	software := strings.Fields(parts[2])
+	if len(software) == 0 {
+		return match{}, false
+	}
+	token := strings.SplitN(software[0], " ", 2)[0]
+	ver := sshVersion.FindStringSubmatch(token)
+	if ver == nil {
+		return match{protocol: "SSH", confidence: .60, evidence: evidence("protocol.ssh", "banner", []byte(line))}, true
+	}
+	os := ""
+	comment := ""
+	if len(software) > 1 {
+		comment = strings.Join(software[1:], " ")
+	}
+	os = distroHint(comment)
+	score := .90
+	if os != "" {
+		score = .95
+	}
+	return match{protocol: "SSH", product: "OpenSSH", version: ver[1], osHint: os, confidence: score, evidence: evidence("ssh.openssh", "banner", []byte(line))}, true
+}
+
+type serverFingerprint struct {
+	name, product, rule string
+	score, versionless  float64
+}
+
+var httpProducts = []serverFingerprint{
+	{name: "nginx", product: "nginx", rule: "http.nginx", score: .90, versionless: .80},
+	{name: "apache", product: "Apache", rule: "http.apache", score: .90, versionless: .80},
+	{name: "jetty", product: "Jetty", rule: "http.jetty", score: .85, versionless: .75},
+	{name: "microsoft-iis", product: "Microsoft-IIS", rule: "http.iis", score: .90, versionless: .80},
+}
+
+func httpMatches(s string) []match {
+	lines := strings.Split(s, "\n")
+	if len(lines) == 0 {
+		return nil
+	}
+	status := cleanLine(lines[0])
+	fields := strings.Fields(status)
+	if len(fields) < 2 || !validHTTPVersion(fields[0]) || !validHTTPStatusCode(fields[1]) {
+		return nil
+	}
+	var found []match
+	headerSeen := false
+	for _, raw := range lines[1:] {
+		line := cleanLine(raw)
+		if line == "" {
+			break
+		}
+		colon := strings.IndexByte(line, ':')
+		if colon <= 0 || !validHeaderName(line[:colon]) {
+			continue
+		}
+		headerSeen = true
+		if !strings.EqualFold(strings.TrimSpace(line[:colon]), "Server") {
+			continue
+		}
+		value := strings.TrimSpace(line[colon+1:])
+		lower := strings.ToLower(value)
+		for _, p := range httpProducts {
+			idx := strings.Index(lower, p.name)
+			if idx < 0 {
+				continue
+			}
+			if idx > 0 && value[idx-1] != ' ' && value[idx-1] != '\t' && value[idx-1] != '(' && value[idx-1] != ',' {
+				continue
+			}
+			// Product tokens must end at a version separator or header-value boundary.
+			end := idx + len(p.name)
+			if end < len(value) && value[end] != '/' && value[end] != ' ' && value[end] != '\t' && value[end] != '(' {
+				continue
+			}
+			version := ""
+			if end < len(value) && value[end] == '/' {
+				j := end + 1
+				for j < len(value) && isVersionChar(value[j]) {
+					j++
+				}
+				candidate := value[end+1 : j]
+				if validDottedVersion(candidate) {
+					version = candidate
+				}
+			}
+			// Only a parenthesized annotation following this product token can
+			// supply an OS hint; earlier proxy or vendor comments are unrelated.
+			os := distroInParentheses(value[end:])
+			score := p.score
+			if version == "" {
+				score = p.versionless
+			}
+			found = append(found, match{protocol: "HTTP", product: p.product, version: version, osHint: os, confidence: score, evidence: printableHeaderEvidence(p.rule, line)})
+		}
+	}
+	if !headerSeen {
+		return nil
+	}
+	if len(found) == 0 {
+		// Valid HTTP response structure is sufficient for protocol-only identification.
+		return []match{{protocol: "HTTP", confidence: .60, evidence: evidence("protocol.http", "banner", []byte(status))}}
+	}
+	return found
+}
+
+func validHTTPVersion(s string) bool {
+	switch s {
+	case "HTTP/1.0", "HTTP/1.1", "HTTP/2", "HTTP/2.0":
+		return true
+	default:
+		return false
+	}
+}
+
+func validHTTPStatusCode(s string) bool {
+	return len(s) == 3 && s[0] >= '1' && s[0] <= '5' && s[1] >= '0' && s[1] <= '9' && s[2] >= '0' && s[2] <= '9'
+}
+
+func validHeaderName(s string) bool {
+	if s == "" {
+		return false
+	}
+	for i := 0; i < len(s); i++ {
+		b := s[i]
+		if !(b >= 'A' && b <= 'Z' || b >= 'a' && b <= 'z' || b >= '0' && b <= '9' || strings.ContainsRune("!#$%&'*+-.^_`|~", rune(b))) {
+			return false
+		}
+	}
+	return true
+}
+
+func isVersionChar(b byte) bool {
+	return b >= '0' && b <= '9' || b >= 'A' && b <= 'Z' || b >= 'a' && b <= 'z' || b == '.' || b == '+' || b == '_' || b == '-'
+}
+func validDottedVersion(s string) bool {
+	if len(s) == 0 {
+		return false
+	}
+	if !versionToken.MatchString(s) {
+		return false
+	}
+	return strings.Contains(s, ".")
+}
+
+func distroHint(s string) string {
+	loc := distroMarker.FindStringSubmatch(s)
+	if len(loc) < 2 {
+		return ""
+	}
+	if strings.EqualFold(loc[1], "ubuntu") {
+		return "Ubuntu"
+	}
+	return "Debian"
+}
+
+func distroInParentheses(s string) string {
+	for start := 0; start < len(s); {
+		rel := strings.IndexByte(s[start:], '(')
+		if rel < 0 {
+			return ""
+		}
+		start += rel + 1
+		end := strings.IndexByte(s[start:], ')')
+		if end < 0 {
+			return ""
+		}
+		if hint := distroHint(s[start : start+end]); hint != "" {
+			return hint
+		}
+		start += end + 1
+	}
+	return ""
+}
+
+func mysqlMatch(b []byte) (match, bool) {
+	if len(b) < 8 || b[3] != 0 || b[4] != 0x0a {
+		return match{}, false
+	}
+	declared := int(b[0]) | int(b[1])<<8 | int(b[2])<<16
+	if declared < 4 || declared+4 < len(b) {
+		return match{}, false
+	}
+	end := bytes.IndexByte(b[5:], 0)
+	if end < 0 || end == 0 || end > 64 {
+		return match{}, false
+	}
+	versionBytes := b[5 : 5+end]
+	for _, c := range versionBytes {
+		if c < 0x20 || c > 0x7e {
+			return match{}, false
+		}
+	}
+	version := string(versionBytes)
+	if !validDottedVersion(version) || version[0] < '0' || version[0] > '9' {
+		return match{}, false
+	}
+	return match{protocol: "MySQL", product: "MySQL", version: version, confidence: .90, evidence: binaryEvidence("mysql.handshake", b[:6+end])}, true
+}
+
+func redisMatches(s string) []match {
+	line := s
+	if strings.HasPrefix(line, "-NOAUTH Authentication required.") {
+		if line == "-NOAUTH Authentication required." || line == "-NOAUTH Authentication required.\r\n" || line == "-NOAUTH Authentication required.\n" {
+			return []match{{protocol: "Redis", product: "Redis", confidence: .70, evidence: evidence("redis.noauth", "banner", []byte(cleanLine(line)))}}
+		}
+	}
+	if redisCommandError.MatchString(line) {
+		return []match{{protocol: "Redis", product: "Redis", confidence: .70, evidence: evidence("redis.command_error", "banner", []byte(cleanLine(line)))}}
+	}
+	if line == "+PONG" || line == "+PONG\r\n" || line == "+PONG\n" {
+		return []match{{protocol: "Redis", product: "Redis", confidence: .70, evidence: evidence("redis.pong", "banner", []byte(cleanLine(line)))}}
+	}
+	return nil
+}
+
+func ftpMatches(s string) []match {
+	line := cleanLine(strings.SplitN(s, "\n", 2)[0])
+	if !(strings.HasPrefix(line, "220 ") || strings.HasPrefix(line, "220-")) {
+		return nil
+	}
+	lower := strings.ToLower(line)
+	type fp struct{ name, product, rule string }
+	for _, p := range []fp{{"proftpd", "ProFTPD", "ftp.proftpd"}, {"vsftpd", "vsFTPd", "ftp.vsftpd"}, {"pure-ftpd", "Pure-FTPd", "ftp.pureftpd"}} {
+		idx := strings.Index(lower, p.name)
+		if idx < 0 {
+			continue
+		}
+		if idx > 0 && line[idx-1] != ' ' && line[idx-1] != '\t' && line[idx-1] != '(' && line[idx-1] != '-' {
+			continue
+		}
+		rest := line[idx+len(p.name):]
+		if rest != "" && rest[0] != ' ' && rest[0] != '\t' && rest[0] != ')' && rest[0] != '-' && !(rest[0] >= '0' && rest[0] <= '9') {
+			continue
+		}
+		version := ""
+		if strings.HasPrefix(rest, " ") {
+			rest = strings.TrimSpace(rest)
+		} else if strings.HasPrefix(rest, "-") {
+			rest = rest[1:]
+		}
+		if rest != "" && rest[0] >= '0' && rest[0] <= '9' {
+			token := strings.Fields(rest)[0]
+			token = strings.TrimRight(token, ")],;:")
+			if validDottedVersion(token) {
+				version = token
+			}
+		}
+		score := .90
+		if p.product == "Pure-FTPd" {
+			score = .80
+		}
+		if version == "" {
+			score = .80
+		}
+		return []match{{protocol: "FTP", product: p.product, version: version, confidence: score, evidence: evidence(p.rule, "banner", []byte(line))}}
+	}
+	if strings.Contains(lower, "ftp") || strings.Contains(lower, "service ready") {
+		return []match{{protocol: "FTP", confidence: .60, evidence: evidence("protocol.ftp", "banner", []byte(line))}}
+	}
+	return nil
+}
+
+func tlsMatch(b []byte) (match, bool) {
+	if len(b) < 9 || b[0] != 0x16 || b[1] != 0x03 || b[2] < 0x01 || b[2] > 0x04 {
+		return match{}, false
+	}
+	recordLen := int(b[3])<<8 | int(b[4])
+	payload := b[5:]
+	if recordLen == 0 || recordLen <= len(payload) || len(payload) < 4 {
+		return match{}, false
+	}
+	if payload[0] != 0x01 && payload[0] != 0x02 {
+		return match{}, false
+	}
+	handshakeLen := int(payload[1])<<16 | int(payload[2])<<8 | int(payload[3])
+	if handshakeLen <= len(payload)-4 {
+		return match{}, false
+	}
+	return match{protocol: "TLS", confidence: .50, evidence: binaryEvidence("tls.record_prefix", b[:min(len(b), 9)])}, true
+}

@@ -1,0 +1,126 @@
+{
+  "purpose": "selftest_not_final_acceptance",
+  "confidence_tolerance": 1e-09,
+  "cases": [
+    {
+      "index": 0,
+      "ip": "1.2.3.4",
+      "input_source": "user",
+      "expected_source": "user"
+    },
+    {
+      "index": 1,
+      "ip": "1.2.3.5",
+      "input_source": "user",
+      "expected_source": "user"
+    },
+    {
+      "index": 2,
+      "ip": "1.2.3.6",
+      "input_source": "user",
+      "expected_source": "user"
+    },
+    {
+      "index": 3,
+      "ip": "1.2.3.7",
+      "input_source": "user",
+      "expected_source": "user"
+    },
+    {
+      "index": 4,
+      "ip": "1.2.3.8",
+      "input_source": "user",
+      "expected_source": "user"
+    },
+    {
+      "index": 5,
+      "ip": "1.2.3.9",
+      "input_source": "user",
+      "expected_source": "user"
+    },
+    {
+      "index": 6,
+      "ip": "1.2.3.10",
+      "input_source": "user",
+      "expected_source": "user"
+    },
+    {
+      "index": 7,
+      "ip": "1.2.3.11",
+      "input_source": "user",
+      "expected_source": "contract_inferred"
+    },
+    {
+      "index": 8,
+      "ip": "1.2.3.12",
+      "input_source": "user",
+      "expected_source": "contract_inferred"
+    },
+    {
+      "index": 9,
+      "ip": "1.2.3.13",
+      "input_source": "user",
+      "expected_source": "contract_inferred"
+    },
+    {
+      "index": 10,
+      "ip": "1.2.3.14",
+      "input_source": "user",
+      "expected_source": "contract_inferred"
+    },
+    {
+      "index": 11,
+      "ip": "1.2.3.15",
+      "input_source": "user",
+      "expected_source": "contract_inferred"
+    },
+    {
+      "index": 12,
+      "ip": "1.2.3.16",
+      "input_source": "user",
+      "expected_source": "contract_inferred"
+    },
+    {
+      "index": 13,
+      "ip": "1.2.3.17",
+      "input_source": "user",
+      "expected_source": "contract_inferred"
+    },
+    {
+      "index": 14,
+      "ip": "1.2.3.18",
+      "input_source": "user",
+      "expected_source": "contract_inferred"
+    },
+    {
+      "index": 15,
+      "ip": "1.2.3.19",
+      "input_source": "user",
+      "expected_source": "contract_inferred"
+    },
+    {
+      "index": 16,
+      "ip": "1.2.3.20",
+      "input_source": "user",
+      "expected_source": "contract_inferred"
+    },
+    {
+      "index": 17,
+      "ip": "1.2.3.21",
+      "input_source": "user",
+      "expected_source": "contract_inferred"
+    },
+    {
+      "index": 18,
+      "ip": "1.2.3.22",
+      "input_source": "user",
+      "expected_source": "contract_inferred"
+    },
+    {
+      "index": 19,
+      "ip": "1.2.3.23",
+      "input_source": "user",
+      "expected_source": "contract_inferred"
+    }
+  ]
+}
