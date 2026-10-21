@@ -43,6 +43,9 @@ func run(ctx context.Context, cfg config.Config, logger *log.Logger) error {
 		return err
 	}
 	recognizer, err := fingerprint.New()
+	if cfg.RulesPath != "" {
+		recognizer, err = fingerprint.NewFromFile(cfg.RulesPath)
+	}
 	if err != nil {
 		return fmt.Errorf("初始化规则：%w", err)
 	}

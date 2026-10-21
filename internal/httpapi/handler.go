@@ -31,6 +31,8 @@ func New(batch contract.BatchIdentifier, config contract.HTTPConfig) (http.Handl
 	mux := http.NewServeMux()
 	mux.HandleFunc("/api/v1/identify", a.identify)
 	mux.HandleFunc("/healthz", a.health)
+	mux.HandleFunc("/health", a.health)
+	mux.HandleFunc("/fingerprint", a.identify)
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		a.writeError(w, http.StatusNotFound, contract.CodeNotFound, "请求路径不存在")
 	})
@@ -38,7 +40,7 @@ func New(batch contract.BatchIdentifier, config contract.HTTPConfig) (http.Handl
 }
 
 func (a *api) health(w http.ResponseWriter, r *http.Request) {
-	if r.URL.Path != "/healthz" {
+	if r.URL.Path != "/healthz" && r.URL.Path != "/health" {
 		a.writeError(w, http.StatusNotFound, contract.CodeNotFound, "请求路径不存在")
 		return
 	}
@@ -53,7 +55,7 @@ func (a *api) health(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *api) identify(w http.ResponseWriter, r *http.Request) {
-	if r.URL.Path != "/api/v1/identify" {
+	if r.URL.Path != "/api/v1/identify" && r.URL.Path != "/fingerprint" {
 		a.writeError(w, http.StatusNotFound, contract.CodeNotFound, "请求路径不存在")
 		return
 	}
@@ -95,6 +97,14 @@ func (a *api) identify(w http.ResponseWriter, r *http.Request) {
 		a.writeError(w, http.StatusBadRequest, contract.CodeInvalidRequest, "请求体无法读取")
 		return
 	}
+	if r.URL.Path == "/fingerprint" {
+		// The public task API uses arrays; retain the old wrapped endpoint as an alias.
+		if trimmed := bytes.TrimSpace(body); len(trimmed) == 0 || trimmed[0] != '[' {
+			a.writeError(w, 400, contract.CodeInvalidRequest, "请求必须为JSON数组")
+			return
+		}
+		body = append(append([]byte(`{"records":`), body...), '}')
+	}
 	if err := validateStrictJSON(body); err != nil {
 		a.writeError(w, http.StatusBadRequest, contract.CodeInvalidRequest, "请求格式不合法")
 		return
@@ -117,6 +127,18 @@ func (a *api) identify(w http.ResponseWriter, r *http.Request) {
 	}
 	if r.Context().Err() != nil {
 		a.handleContextEnd(w, r)
+		return
+	}
+	if r.URL.Path == "/fingerprint" {
+		output := make([]FingerprintResult, len(results))
+		for i, result := range results {
+			p := result.Protocol
+			if p == "" {
+				p = "unknown"
+			}
+			output[i] = FingerprintResult{IP: result.IP, Port: result.Port, Protocol: p, Product: result.Product, Version: result.Version, OSHint: result.OSHint, Confidence: result.Confidence}
+		}
+		writeJSON(w, http.StatusOK, output)
 		return
 	}
 	writeJSON(w, http.StatusOK, contract.IdentifyResponse{Results: results})
@@ -181,4 +203,15 @@ func isNilDependency(value any) bool {
 	default:
 		return false
 	}
+}
+
+// FingerprintResult is the seven-field public delivery contract.
+type FingerprintResult struct {
+	IP         string  `json:"ip"`
+	Port       int     `json:"port"`
+	Protocol   string  `json:"protocol"`
+	Product    string  `json:"product"`
+	Version    string  `json:"version"`
+	OSHint     string  `json:"os_hint"`
+	Confidence float64 `json:"confidence"`
 }

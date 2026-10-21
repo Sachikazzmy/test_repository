@@ -1,3 +1,24 @@
+# 完整最小交付复审（2026-10-21）
+
+本轮按用户补充的完整题目修正了原后端阶段差距：
+
+- 公开POST /fingerprint采用数组请求和七字段数组响应，GET /health真实检查已加载规则后的进程；旧详细接口作为兼容入口保留。
+- 公开未知/单条无效结果统一protocol=unknown，版本/OS不猜测；20条client→server→engine回归比较全部字段。
+- 独立Go client读取本地JSON、请求server并展示数组，错误非零退出，有fake HTTP及真实服务集成测试。
+- rules/rules.json外置产品token、正则和评分；通用加载器启动校验并编译不可变规则。新增HTTP产品无须改Go代码的测试通过。Go保留协议结构解析与执行算法。
+- Compose提供client与server，client通过server:8080访问并依赖真实健康检查；一次性client成功退出0，server持续运行。双target多阶段构建、非root、只读文件系统、只读规则/输入、capabilities删除和内部网络。
+- MySQL版本提取保留常见发行后缀，有新增回归测试。
+
+验证：Go全包竞态测试、vet、build、格式和Compose配置检查通过。Docker以独立banner-delivery项目实际构建两个Go 1.26系列镜像并启动，client输出20条七字段结果逐项符合预期（含unknown），规则来自只读文件挂载，服务健康。`up -d`正常返回；`up --wait`不适用于正常退出的一次性client，已在方案中说明。
+
+最终部署复验发现纯internal网络会阻止宿主机发布端口访问，已为server增加独立ingress网络，client仍仅在backend内部网络。复验宿主GET /health成功，重新执行独立client容器输出20/20符合预期并正常退出0。
+
+仓库GitHub元数据确认visibility=public。隐藏验收数据未知，不能宣称通过隐藏验收；未做负载及跨架构测试。无认证及无全局并发准入仍是已知部署边界。
+
+下面保留前一轮server-only审查历史，其“client未完成”等状态已被本轮覆盖。
+
+---
+
 # 后端 Code Review 与验证记录
 
 审查日期：2026-10-21。主agent检查0/A/B/C/D的公共契约、规则、批量服务、HTTP、配置、运行入口和测试，未启动subagents。当前后端满足已定义的最小要求；用户自测不是最终验收，完整client+server交付尚未完成。

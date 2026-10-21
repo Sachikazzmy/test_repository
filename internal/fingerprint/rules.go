@@ -7,15 +7,11 @@ import (
 )
 
 var (
-	httpProductToken  = regexp.MustCompile(`(?i)nginx|apache|jetty|microsoft-iis`)
-	ftpWord           = regexp.MustCompile(`(?i)(?:^|[^a-z0-9])ftp(?:$|[^a-z0-9])`)
-	sshVersion        = regexp.MustCompile(`^OpenSSH_([0-9][A-Za-z0-9.+_-]*)$`)
-	versionToken      = regexp.MustCompile(`^[0-9]+(?:\.[0-9]+)+(?:[A-Za-z][A-Za-z0-9.+_-]*)?$`)
-	distroMarker      = regexp.MustCompile(`(?i)(?:^|[^a-z])(ubuntu|debian)(?:-[a-z0-9.]+)?(?:$|[^a-z])`)
-	redisCommandError = regexp.MustCompile(`(?i)^-ERR wrong number of arguments for ['"][A-Za-z0-9_-]+['"] command(?:\r?\n)?$`)
+	versionToken = regexp.MustCompile(`^[0-9]+(?:\.[0-9]+)+(?:[A-Za-z_+-][A-Za-z0-9.+_-]*)?$`)
+	distroMarker = regexp.MustCompile(`(?i)(?:^|[^a-z])(ubuntu|debian)(?:-[a-z0-9.]+)?(?:$|[^a-z])`)
 )
 
-func sshMatch(s string) (match, bool) {
+func (e *engine) sshMatch(s string) (match, bool) {
 	line := cleanLine(strings.SplitN(s, "\n", 2)[0])
 	if !strings.HasPrefix(line, "SSH-") {
 		return match{}, false
@@ -32,7 +28,7 @@ func sshMatch(s string) (match, bool) {
 		return match{}, false
 	}
 	token := strings.SplitN(software[0], " ", 2)[0]
-	ver := sshVersion.FindStringSubmatch(token)
+	ver := e.patterns["ssh.openssh"].FindStringSubmatch(token)
 	if ver == nil {
 		return match{protocol: "SSH", confidence: .60, evidence: evidence("protocol.ssh", "banner", []byte(line))}, true
 	}
@@ -54,14 +50,7 @@ type serverFingerprint struct {
 	score, versionless  float64
 }
 
-var httpProducts = []serverFingerprint{
-	{name: "nginx", product: "nginx", rule: "http.nginx", score: .90, versionless: .80},
-	{name: "apache", product: "Apache", rule: "http.apache", score: .90, versionless: .80},
-	{name: "jetty", product: "Jetty", rule: "http.jetty", score: .85, versionless: .75},
-	{name: "microsoft-iis", product: "Microsoft-IIS", rule: "http.iis", score: .90, versionless: .80},
-}
-
-func httpMatches(s string) []match {
+func (e *engine) httpMatches(s string) []match {
 	lines := strings.Split(s, "\n")
 	if len(lines) == 0 {
 		return nil
@@ -87,7 +76,7 @@ func httpMatches(s string) []match {
 			continue
 		}
 		value := strings.TrimSpace(line[colon+1:])
-		for _, loc := range httpProductToken.FindAllStringIndex(value, -1) {
+		for _, loc := range e.httpToken.FindAllStringIndex(value, -1) {
 			idx, end := loc[0], loc[1]
 			if idx > 0 && value[idx-1] != ' ' && value[idx-1] != '\t' && value[idx-1] != '(' && value[idx-1] != ',' {
 				continue
@@ -96,7 +85,7 @@ func httpMatches(s string) []match {
 				continue
 			}
 			var product serverFingerprint
-			for _, p := range httpProducts {
+			for _, p := range e.httpProducts {
 				if strings.EqualFold(value[idx:end], p.name) {
 					product = p
 					break
@@ -191,7 +180,7 @@ func distroHint(s string) string {
 	return "Debian"
 }
 
-func mysqlMatch(b []byte) (match, bool) {
+func (e *engine) mysqlMatch(b []byte) (match, bool) {
 	if len(b) < 8 || b[3] != 0 || b[4] != 0x0a {
 		return match{}, false
 	}
@@ -216,30 +205,22 @@ func mysqlMatch(b []byte) (match, bool) {
 	return match{protocol: "MySQL", product: "MySQL", version: version, confidence: .90, evidence: binaryEvidence("mysql.handshake", b[:6+end])}, true
 }
 
-func redisMatches(s string) []match {
-	line := s
-	if strings.HasPrefix(line, "-NOAUTH Authentication required.") {
-		if line == "-NOAUTH Authentication required." || line == "-NOAUTH Authentication required.\r\n" || line == "-NOAUTH Authentication required.\n" {
-			return []match{{protocol: "Redis", product: "Redis", confidence: .70, evidence: evidence("redis.noauth", "banner", []byte(cleanLine(line)))}}
+func (e *engine) redisMatches(s string) []match {
+	for _, id := range []string{"redis.command_error", "redis.pong", "redis.noauth"} {
+		if e.patterns[id].MatchString(s) {
+			return []match{{protocol: "Redis", product: e.definitions[id].Product, confidence: .70, evidence: evidence(id, "banner", []byte(cleanLine(s)))}}
 		}
-	}
-	if redisCommandError.MatchString(line) {
-		return []match{{protocol: "Redis", product: "Redis", confidence: .70, evidence: evidence("redis.command_error", "banner", []byte(cleanLine(line)))}}
-	}
-	if line == "+PONG" || line == "+PONG\r\n" || line == "+PONG\n" {
-		return []match{{protocol: "Redis", product: "Redis", confidence: .70, evidence: evidence("redis.pong", "banner", []byte(cleanLine(line)))}}
 	}
 	return nil
 }
 
-func ftpMatches(s string) []match {
+func (e *engine) ftpMatches(s string) []match {
 	line := cleanLine(strings.SplitN(s, "\n", 2)[0])
 	if !(strings.HasPrefix(line, "220 ") || strings.HasPrefix(line, "220-")) {
 		return nil
 	}
 	lower := asciiLower(line)
-	type fp struct{ name, product, rule string }
-	for _, p := range []fp{{"proftpd", "ProFTPD", "ftp.proftpd"}, {"vsftpd", "vsFTPd", "ftp.vsftpd"}, {"pure-ftpd", "Pure-FTPd", "ftp.pureftpd"}} {
+	for _, p := range e.ftpProducts {
 		idx := strings.Index(lower, p.name)
 		if idx < 0 {
 			continue
@@ -273,13 +254,13 @@ func ftpMatches(s string) []match {
 		}
 		return []match{{protocol: "FTP", product: p.product, version: version, confidence: score, evidence: evidence(p.rule, "banner", []byte(line))}}
 	}
-	if ftpWord.MatchString(line) {
+	if e.patterns["protocol.ftp"].MatchString(line) {
 		return []match{{protocol: "FTP", confidence: .60, evidence: evidence("protocol.ftp", "banner", []byte(line))}}
 	}
 	return nil
 }
 
-func tlsMatch(b []byte) (match, bool) {
+func (e *engine) tlsMatch(b []byte) (match, bool) {
 	if len(b) < 9 || b[0] != 0x16 || b[1] != 0x03 || b[2] < 0x01 || b[2] > 0x04 {
 		return match{}, false
 	}

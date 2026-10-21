@@ -260,3 +260,11 @@ func TestReviewHTTPRepeatedTokensAndOSScope(t *testing.T) {
 		}
 	}
 }
+
+func TestMySQLDistributionSuffix(t *testing.T) {
+	raw := append([]byte{0x4a, 0, 0, 0, 0x0a}, []byte("8.0.36-0ubuntu0.22.04.1\x00")...)
+	got := identifyEncoding(t, base64.StdEncoding.EncodeToString(raw), "base64", 9999)
+	if got.Product != "MySQL" || got.Version != "8.0.36-0ubuntu0.22.04.1" {
+		t.Fatalf("lost server version: %+v", got)
+	}
+}

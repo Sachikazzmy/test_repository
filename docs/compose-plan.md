@@ -1,11 +1,11 @@
-# Compose 交付规划
+# 最小交付 Compose 方案
 
-当前交付范围为server后端。0/A/B/C/D的后端实现与测试完成并修复审查问题后，使用根目录compose.yml启动一个真实server服务；不引入数据库、消息队列或占位client容器。未来client实现后再添加独立服务，调用server:8080，无需改动识别模块。
+当前交付独立Go client与server。`docker compose up --build`启动server，在真实GET /health成功后运行client，从只读挂载JSON文件读取数据，经内部DNS访问http://server:8080/fingerprint，输出JSON数组后正常退出0。server持续提供服务。不要使用`up --wait`等待已正常退出的一次性client；该选项要求服务持续运行，会将正常退出误报为等待失败。
 
-镜像采用两阶段构建：Go 1.26工具链编译静态程序，Alpine运行层以65532非root身份启动；容器文件系统只读，不挂载宿主机目录，不需要持久卷。规则随代码构建，更新规则后重新构建镜像。
+Dockerfile使用共享Go 1.26构建阶段，分别产出server/client target，运行阶段仅包含静态程序及必要规则，不携带编译器。两者均为65532非root、只读文件系统、cap_drop ALL和禁止提权。外置规则只读挂载，改动后重启server即可生效；格式或规则编译失败使server退出而非假健康。
 
-默认只向宿主机127.0.0.1:8080发布端口。用户可通过BANNER_HOST_PORT改端口、BANNER_BIND_HOST改绑定地址；容器内始终监听:8080。现阶段无认证，公开网络部署应由后续网关提供访问控制。
+client只连接独立internal backend网络；server另接ingress桥接网络以支持宿主机发布端口，client不发布端口，server默认仅发布宿主127.0.0.1:8080。无需数据库、凭据、Docker socket或特权。规则和输入为只读bind mount，不需要持久化写卷。日志轮转限制server日志大小。
 
-健康检查直接访问进程的/healthz；启动用docker compose up --build -d --wait。日志有大小及轮转限制。SIGTERM交给server原有退出流程，Compose等待65秒，覆盖可配置的最长60秒shutdown期限。无需容器init或后台shell。
+server停止接收SIGTERM，使用独立context等待在途请求，最长60秒；Compose停止等待65秒。默认批次、Banner和body上限以及超时沿用公共配置。并发限制按批生效，无全局准入，未进行负载压测。
 
-环境配置与公共契约保持一致，调整请求超时必须同步提高写超时。单批worker数量有上限，但同时请求数没有全局限流；部署时应按资源容量限制入口并发。客户端和最终验收尚未交付，不能将本次后端自测等同整个系统最终验收。
+BANNER_INPUT_FILE选择本地输入文件；BANNER_HOST_PORT改变宿主端口；BANNER_BIND_HOST改变宿主绑定。完整启动、重复运行和清理命令见README。

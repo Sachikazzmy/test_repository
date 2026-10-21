@@ -14,7 +14,7 @@ import (
 
 func (a *api) middleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/api/v1/identify" || r.Method != http.MethodPost {
+		if (r.URL.Path != "/api/v1/identify" && r.URL.Path != "/fingerprint") || r.Method != http.MethodPost {
 			next.ServeHTTP(w, r)
 			return
 		}

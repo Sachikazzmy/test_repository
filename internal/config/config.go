@@ -13,6 +13,7 @@ import (
 )
 
 type Config struct {
+	RulesPath         string
 	ListenAddr        string
 	Service           contract.ServiceConfig
 	HTTP              contract.HTTPConfig
@@ -36,6 +37,12 @@ func Load() (Config, error) { return LoadFrom(os.LookupEnv) }
 // LoadFrom distinguishes an unset variable from an explicitly empty value.
 func LoadFrom(lookup func(string) (string, bool)) (Config, error) {
 	c := Default()
+	if value, ok := lookupRulePath(lookup); ok {
+		if value == "" {
+			return Config{}, invalid("BANNER_RULES_PATH")
+		}
+		c.RulesPath = value
+	}
 	if lookup == nil {
 		return Config{}, invalid("环境变量读取器")
 	}
@@ -124,4 +131,11 @@ func Validate(c Config) error {
 
 func invalid(name string) error {
 	return &contract.Error{Code: contract.CodeInvalidConfig, Message: fmt.Sprintf("%s 配置不合法", name)}
+}
+
+func lookupRulePath(lookup func(string) (string, bool)) (string, bool) {
+	if lookup == nil {
+		return "", false
+	}
+	return lookup("BANNER_RULES_PATH")
 }

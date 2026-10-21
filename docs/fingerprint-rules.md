@@ -1,5 +1,7 @@
 # Banner 指纹规则
 
+当前产品token、产品名称、SSH/Redis匹配正则与评分已迁入根目录`rules/rules.json`。`LoadRules`与`NewFromFile`启动校验规则并编译正则；默认New嵌入同一文件快照。Compose通过BANNER_RULES_PATH加载只读挂载文件，修改后重启生效。通用Go代码保留协议结构解析、字段提取、去重排序和证据限制。新增HTTP/FTP产品通过token规则扩展，其他协议的新结构解析仍需代码支持。
+
 `internal/fingerprint` 实现冻结契约 v1 的无状态识别器。规则只检查提交的 Banner 字节；端口不参与匹配、加分或候选排序。`New` 返回可并发调用的 `contract.Recognizer`。识别器使用 `contract.DecodeBanner` 解码，不改写输入记录；非法编码返回 contract 错误，未知 Banner 返回空识别和 nil 错误。调用开始、解码后及识别后检查 context 取消。
 
 ## 规则

@@ -1,0 +1,164 @@
+{
+  "rules": [
+    {
+      "id": "ssh.openssh",
+      "protocol": "SSH",
+      "product": "OpenSSH",
+      "token": "",
+      "pattern": "^OpenSSH_([0-9][A-Za-z0-9.+_-]*)$",
+      "confidence": 0.9,
+      "versionless": 0.8,
+      "os_confidence": 0.95
+    },
+    {
+      "id": "http.nginx",
+      "protocol": "HTTP",
+      "product": "nginx",
+      "token": "nginx",
+      "pattern": "",
+      "confidence": 0.9,
+      "versionless": 0.8,
+      "os_confidence": 0
+    },
+    {
+      "id": "http.apache",
+      "protocol": "HTTP",
+      "product": "Apache",
+      "token": "apache",
+      "pattern": "",
+      "confidence": 0.9,
+      "versionless": 0.8,
+      "os_confidence": 0
+    },
+    {
+      "id": "http.jetty",
+      "protocol": "HTTP",
+      "product": "Jetty",
+      "token": "jetty",
+      "pattern": "",
+      "confidence": 0.85,
+      "versionless": 0.75,
+      "os_confidence": 0
+    },
+    {
+      "id": "http.iis",
+      "protocol": "HTTP",
+      "product": "Microsoft-IIS",
+      "token": "microsoft-iis",
+      "pattern": "",
+      "confidence": 0.9,
+      "versionless": 0.8,
+      "os_confidence": 0
+    },
+    {
+      "id": "mysql.handshake",
+      "protocol": "MySQL",
+      "product": "MySQL",
+      "token": "",
+      "pattern": "",
+      "confidence": 0.9,
+      "versionless": 0.8,
+      "os_confidence": 0
+    },
+    {
+      "id": "redis.command_error",
+      "protocol": "Redis",
+      "product": "Redis",
+      "token": "",
+      "pattern": "(?i)^-ERR wrong number of arguments for ['\"][A-Za-z0-9_-]+['\"] command(?:\\r?\\n)?$",
+      "confidence": 0.7,
+      "versionless": 0.7,
+      "os_confidence": 0
+    },
+    {
+      "id": "redis.pong",
+      "protocol": "Redis",
+      "product": "Redis",
+      "token": "",
+      "pattern": "^\\+PONG(?:\\r?\\n)?$",
+      "confidence": 0.7,
+      "versionless": 0.7,
+      "os_confidence": 0
+    },
+    {
+      "id": "redis.noauth",
+      "protocol": "Redis",
+      "product": "Redis",
+      "token": "",
+      "pattern": "^-NOAUTH Authentication required\\.(?:\\r?\\n)?$",
+      "confidence": 0.7,
+      "versionless": 0.7,
+      "os_confidence": 0
+    },
+    {
+      "id": "ftp.proftpd",
+      "protocol": "FTP",
+      "product": "ProFTPD",
+      "token": "proftpd",
+      "pattern": "",
+      "confidence": 0.9,
+      "versionless": 0.8,
+      "os_confidence": 0
+    },
+    {
+      "id": "ftp.vsftpd",
+      "protocol": "FTP",
+      "product": "vsFTPd",
+      "token": "vsftpd",
+      "pattern": "",
+      "confidence": 0.9,
+      "versionless": 0.8,
+      "os_confidence": 0
+    },
+    {
+      "id": "ftp.pureftpd",
+      "protocol": "FTP",
+      "product": "Pure-FTPd",
+      "token": "pure-ftpd",
+      "pattern": "",
+      "confidence": 0.8,
+      "versionless": 0.8,
+      "os_confidence": 0
+    },
+    {
+      "id": "protocol.ssh",
+      "protocol": "SSH",
+      "product": "",
+      "token": "",
+      "pattern": "",
+      "confidence": 0.6,
+      "versionless": 0.8,
+      "os_confidence": 0
+    },
+    {
+      "id": "protocol.http",
+      "protocol": "HTTP",
+      "product": "",
+      "token": "",
+      "pattern": "",
+      "confidence": 0.6,
+      "versionless": 0.8,
+      "os_confidence": 0
+    },
+    {
+      "id": "protocol.ftp",
+      "protocol": "FTP",
+      "product": "",
+      "token": "",
+      "pattern": "(?i)(?:^|[^a-z0-9])ftp(?:$|[^a-z0-9])",
+      "confidence": 0.6,
+      "versionless": 0.8,
+      "os_confidence": 0
+    },
+    {
+      "id": "tls.record_prefix",
+      "protocol": "TLS",
+      "product": "",
+      "token": "",
+      "pattern": "",
+      "confidence": 0.5,
+      "versionless": 0.8,
+      "os_confidence": 0
+    }
+  ]
+}

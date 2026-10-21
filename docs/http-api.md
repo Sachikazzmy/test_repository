@@ -1,5 +1,7 @@
 # HTTP API
 
+当前题目公开接口为 `POST /fingerprint`（数组请求/七字段数组响应，未知protocol为unknown）和 `GET /health`。完整例子见README。下面描述保留的详细兼容接口，不能将其包装格式用于/fingerprint。
+
 ## 本轮契约检查与使用边界
 
 HTTP层只依赖 `internal/contract`，通过 `New(contract.BatchIdentifier, contract.HTTPConfig) (http.Handler, error)` 注入业务能力。构造时拒绝nil、typed-nil依赖及非法配置。当前文档对应模块C；D阶段的运行入口、环境配置和集成测试未完成前，不视为可运行server的交付，也不生成Compose。

@@ -103,3 +103,13 @@ func TestLoadUsesProcessEnvironmentAndDoesNotEchoInvalidValue(t *testing.T) {
 		t.Fatalf("unsafe error: %v", err)
 	}
 }
+
+func TestExternalRulePath(t *testing.T) {
+	got, err := loadMap(map[string]string{"BANNER_RULES_PATH": "/app/rules/rules.json"})
+	if err != nil || got.RulesPath != "/app/rules/rules.json" {
+		t.Fatalf("%+v %v", got, err)
+	}
+	if _, err := loadMap(map[string]string{"BANNER_RULES_PATH": ""}); err == nil {
+		t.Fatal("explicit empty path accepted")
+	}
+}

@@ -1,4 +1,10 @@
-# Server 契约 v1
+# Server 契约
+
+## 最小交付公开契约（优先于下文旧接口）
+
+新增 `POST /fingerprint`：请求为Record数组，响应为七字段数组（ip、port、protocol、product、version、os_hint、confidence），无识别或单条非法时protocol为`unknown`、评分0。其他未知字符串为空。新增 `GET /health`，只在规则加载成功并启动后可用。独立client读取数组或旧records包装文件，统一调用/fingerprint并输出数组。旧路径和下文详细内部模型保留兼容，不作为题目公开响应格式。新增BANNER_RULES_PATH选择外部规则文件，Compose默认只读挂载rules/rules.json。
+
+## 原内部契约 v1
 
 本文固定首版后端公共接口，供模块独立实现和测试。用户已提供 20 条自测输入、前 7 条预期输出；这些不是最终验收数据。后续最终验收可能扩展规则覆盖范围。公共实现已补齐至 `go.mod`、`internal/contract/**` 和 `testdata/selftest/**`；不包含识别引擎、client 或 Compose，也不自动启动 subagents。
 

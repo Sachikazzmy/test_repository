@@ -9,16 +9,15 @@ import (
 	"unicode/utf8"
 
 	"bannerfingerprint/internal/contract"
+	ruledata "bannerfingerprint/rules"
 )
 
 const maxEvidenceValue = 256
 const maxEvidencePerCandidate = 16
 const maxCandidates = 16
 
-type engine struct{}
-
 // New constructs the immutable, concurrency-safe fingerprint recognizer.
-func New() (contract.Recognizer, error) { return engine{}, nil }
+func New() (contract.Recognizer, error) { return LoadRules(ruledata.Default) }
 
 type match struct {
 	protocol, product, version, osHint string
@@ -26,7 +25,7 @@ type match struct {
 	evidence                           contract.Evidence
 }
 
-func (engine) Identify(ctx context.Context, record contract.Record) (contract.Identification, error) {
+func (e *engine) Identify(ctx context.Context, record contract.Record) (contract.Identification, error) {
 	if err := ctx.Err(); err != nil {
 		return contract.Identification{}, err
 	}
@@ -38,27 +37,40 @@ func (engine) Identify(ctx context.Context, record contract.Record) (contract.Id
 		return contract.Identification{}, err
 	}
 
-	matches := recognize(banner)
+	matches := e.recognize(banner)
 	if err := ctx.Err(); err != nil {
 		return contract.Identification{}, err
 	}
 	return resolve(matches), nil
 }
 
-func recognize(b []byte) []match {
+func (e *engine) recognize(b []byte) []match {
 	var found []match
 	text := string(b)
-	if m, ok := sshMatch(text); ok {
+	if m, ok := e.sshMatch(text); ok {
 		found = append(found, m)
 	}
-	found = append(found, httpMatches(text)...)
-	if m, ok := mysqlMatch(b); ok {
+	found = append(found, e.httpMatches(text)...)
+	if m, ok := e.mysqlMatch(b); ok {
 		found = append(found, m)
 	}
-	found = append(found, redisMatches(text)...)
-	found = append(found, ftpMatches(text)...)
-	if m, ok := tlsMatch(b); ok {
+	found = append(found, e.redisMatches(text)...)
+	found = append(found, e.ftpMatches(text)...)
+	if m, ok := e.tlsMatch(b); ok {
 		found = append(found, m)
+	}
+	for i := range found {
+		d := e.definitions[found[i].evidence.RuleID]
+		found[i].confidence = d.Confidence
+		if d.Product != "" {
+			found[i].product = d.Product
+			if found[i].version == "" {
+				found[i].confidence = d.Versionless
+			}
+		}
+		if found[i].osHint != "" && d.OSConfidence > 0 {
+			found[i].confidence = d.OSConfidence
+		}
 	}
 	return found
 }
