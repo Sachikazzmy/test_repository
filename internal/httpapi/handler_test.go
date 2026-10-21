@@ -82,6 +82,15 @@ func TestIdentifyRejectsInvalidJSONShapes(t *testing.T) {
 		body string
 	}{
 		{"syntax", `{"records":[}`},
+		{"top case", `{"Records":[]}`},
+		{"top case override", `{"records":[],"Records":[]}`},
+		{"ip case", `{"records":[{"IP":"192.0.2.1","port":22,"banner":"x"}]}`},
+		{"ip override", `{"records":[{"ip":"192.0.2.1","IP":"192.0.2.2","port":22,"banner":"x"}]}`},
+		{"port override", `{"records":[{"ip":"192.0.2.1","port":22,"Port":80,"banner":"x"}]}`},
+		{"banner override", `{"records":[{"ip":"192.0.2.1","port":22,"banner":"x","Banner":"y"}]}`},
+		{"encoding case", `{"records":[{"ip":"192.0.2.1","port":22,"banner":"x","Banner_Encoding":"utf8"}]}`},
+		{"escaped duplicate key", `{"records":[],"\u0072ecords":[]}`},
+		{"deep nesting", `{"records":` + strings.Repeat("[", 1000) + `0` + strings.Repeat("]", 1000) + `}`},
 		{"trailing value", validRequest() + ` {}`},
 		{"unknown field", `{"records":[],"extra":true}`},
 		{"nested unknown", `{"records":[{"ip":"192.0.2.1","port":22,"banner":"x","extra":1}]}`},

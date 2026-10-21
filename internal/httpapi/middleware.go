@@ -54,7 +54,7 @@ func validateStrictJSON(data []byte) error {
 	if !ok || delim != '{' {
 		return errors.New("top-level value must be object")
 	}
-	if err := walkObject(dec); err != nil {
+	if err := walkObject(dec, 1); err != nil {
 		return err
 	}
 	if _, err := dec.Token(); err != io.EOF {
@@ -63,7 +63,10 @@ func validateStrictJSON(data []byte) error {
 	return validateRequiredFields(data)
 }
 
-func walkValue(dec *json.Decoder) error {
+func walkValue(dec *json.Decoder, depth int) error {
+	if depth > 4 {
+		return errors.New("JSON nesting exceeds request shape")
+	}
 	tok, err := dec.Token()
 	if err != nil {
 		return err
@@ -74,10 +77,10 @@ func walkValue(dec *json.Decoder) error {
 	}
 	switch d {
 	case '{':
-		return walkObject(dec)
+		return walkObject(dec, depth)
 	case '[':
 		for dec.More() {
-			if err := walkValue(dec); err != nil {
+			if err := walkValue(dec, depth+1); err != nil {
 				return err
 			}
 		}
@@ -91,7 +94,7 @@ func walkValue(dec *json.Decoder) error {
 	}
 }
 
-func walkObject(dec *json.Decoder) error {
+func walkObject(dec *json.Decoder, depth int) error {
 	seen := make(map[string]struct{})
 	for dec.More() {
 		keyToken, err := dec.Token()
@@ -106,7 +109,7 @@ func walkObject(dec *json.Decoder) error {
 			return errors.New("duplicate object key")
 		}
 		seen[key] = struct{}{}
-		if err := walkValue(dec); err != nil {
+		if err := walkValue(dec, depth+1); err != nil {
 			return err
 		}
 	}
@@ -122,6 +125,11 @@ func validateRequiredFields(data []byte) error {
 	if err := json.Unmarshal(data, &top); err != nil || top == nil {
 		return errors.New("top-level object required")
 	}
+	for key := range top {
+		if key != "records" {
+			return errors.New("unknown top-level field")
+		}
+	}
 	rawRecords, ok := top["records"]
 	if !ok || isJSONNull(rawRecords) {
 		return errors.New("records required")
@@ -134,6 +142,13 @@ func validateRequiredFields(data []byte) error {
 		var fields map[string]json.RawMessage
 		if err := json.Unmarshal(raw, &fields); err != nil || fields == nil {
 			return errors.New("record object required")
+		}
+		for key := range fields {
+			switch key {
+			case "ip", "port", "banner", "banner_encoding":
+			default:
+				return errors.New("unknown record field")
+			}
 		}
 		for _, name := range []string{"ip", "port", "banner"} {
 			value, exists := fields[name]

@@ -152,6 +152,25 @@ func TestMultipleCandidatesAndStableOrdering(t *testing.T) {
 	}
 }
 
+func TestSameProductVersionConflictKeepsEvidenceBackedCandidates(t *testing.T) {
+	banner := "HTTP/1.1 200 OK\r\nServer: nginx/1.24.0\r\nServer: nginx/1.25.3\r\nServer: nginx\r\n"
+	got := identify(t, banner, 80)
+	if got.Product != "nginx" || got.Version != "1.24.0" {
+		t.Fatalf("expected deterministic lexical primary version, got %+v", got)
+	}
+	if len(got.Candidates) != 2 {
+		t.Fatalf("expected both supported versions, with versionless duplicate removed: %+v", got.Candidates)
+	}
+	if got.Candidates[0].Version != "1.24.0" || got.Candidates[1].Version != "1.25.3" {
+		t.Fatalf("version candidates are not stably ordered: %+v", got.Candidates)
+	}
+	for _, candidate := range got.Candidates {
+		if len(candidate.Evidence) == 0 || candidate.Evidence[0].RuleID != "http.nginx" {
+			t.Errorf("candidate lacks rule evidence: %+v", candidate)
+		}
+	}
+}
+
 func TestMalformedTruncatedMySQLAndTLS(t *testing.T) {
 	mysql, err := base64.StdEncoding.DecodeString("SgAAAAo4LjAuMzIA")
 	if err != nil {
@@ -205,6 +224,39 @@ func TestFTPSimilarProductNamesDoNotMatch(t *testing.T) {
 		got := identify(t, banner, 21)
 		if got.Product != "" {
 			t.Errorf("misidentified similar FTP product in %q as %q", banner, got.Product)
+		}
+	}
+}
+
+func TestReviewFTPFalsePositives(t *testing.T) {
+	for _, banner := range []string{"220 mail.example ESMTP service ready\r\n", "220 service ready", "220 SFTP service ready", "220 notftp ready"} {
+		if got := identify(t, banner, 21); got.Protocol != "" {
+			t.Fatalf("%q misidentified: %+v", banner, got)
+		}
+	}
+}
+
+func TestReviewHTTPRepeatedTokensAndOSScope(t *testing.T) {
+	got := identify(t, "HTTP/1.1 200 OK\r\nServer: nginx/1.24.0 nginx/1.25.3 nginx/1.24.0", 80)
+	if len(got.Candidates) != 2 || got.Candidates[0].Version != "1.24.0" || got.Candidates[1].Version != "1.25.3" {
+		t.Fatalf("lost versions: %+v", got)
+	}
+	for _, prefix := range []string{"notnginx/0.1 ", "nginx-proxy/0.1 ", "İ代理 "} {
+		got = identify(t, "HTTP/1.1 200 OK\r\nServer: "+prefix+"nginx/1.25.3", 80)
+		if got.Product != "nginx" || got.Version != "1.25.3" {
+			t.Fatalf("prefix %q: %+v", prefix, got)
+		}
+	}
+	got = identify(t, "HTTP/1.1 200 OK\r\nServer: nginx/1.24.0 Apache/2.4.57 (Ubuntu)", 80)
+	if len(got.Candidates) != 2 {
+		t.Fatalf("candidates: %+v", got)
+	}
+	for _, c := range got.Candidates {
+		if c.Product == "nginx" && c.OSHint != "" {
+			t.Fatal("OS leaked to nginx")
+		}
+		if c.Product == "Apache" && c.OSHint != "Ubuntu" {
+			t.Fatal("Apache OS missing")
 		}
 	}
 }

@@ -7,6 +7,8 @@ import (
 )
 
 var (
+	httpProductToken  = regexp.MustCompile(`(?i)nginx|apache|jetty|microsoft-iis`)
+	ftpWord           = regexp.MustCompile(`(?i)(?:^|[^a-z0-9])ftp(?:$|[^a-z0-9])`)
 	sshVersion        = regexp.MustCompile(`^OpenSSH_([0-9][A-Za-z0-9.+_-]*)$`)
 	versionToken      = regexp.MustCompile(`^[0-9]+(?:\.[0-9]+)+(?:[A-Za-z][A-Za-z0-9.+_-]*)?$`)
 	distroMarker      = regexp.MustCompile(`(?i)(?:^|[^a-z])(ubuntu|debian)(?:-[a-z0-9.]+)?(?:$|[^a-z])`)
@@ -85,39 +87,48 @@ func httpMatches(s string) []match {
 			continue
 		}
 		value := strings.TrimSpace(line[colon+1:])
-		lower := strings.ToLower(value)
-		for _, p := range httpProducts {
-			idx := strings.Index(lower, p.name)
-			if idx < 0 {
-				continue
-			}
+		for _, loc := range httpProductToken.FindAllStringIndex(value, -1) {
+			idx, end := loc[0], loc[1]
 			if idx > 0 && value[idx-1] != ' ' && value[idx-1] != '\t' && value[idx-1] != '(' && value[idx-1] != ',' {
 				continue
 			}
-			// Product tokens must end at a version separator or header-value boundary.
-			end := idx + len(p.name)
-			if end < len(value) && value[end] != '/' && value[end] != ' ' && value[end] != '\t' && value[end] != '(' {
+			if end < len(value) && value[end] != '/' && value[end] != ' ' && value[end] != '\t' && value[end] != '(' && value[end] != ',' {
 				continue
 			}
-			version := ""
-			if end < len(value) && value[end] == '/' {
-				j := end + 1
-				for j < len(value) && isVersionChar(value[j]) {
-					j++
+			var product serverFingerprint
+			for _, p := range httpProducts {
+				if strings.EqualFold(value[idx:end], p.name) {
+					product = p
+					break
 				}
-				candidate := value[end+1 : j]
-				if validDottedVersion(candidate) {
+			}
+			version := ""
+			tokenEnd := end
+			if end < len(value) && value[end] == '/' {
+				tokenEnd = end + 1
+				for tokenEnd < len(value) && isVersionChar(value[tokenEnd]) {
+					tokenEnd++
+				}
+				if candidate := value[end+1 : tokenEnd]; validDottedVersion(candidate) {
 					version = candidate
 				}
 			}
-			// Only a parenthesized annotation following this product token can
-			// supply an OS hint; earlier proxy or vendor comments are unrelated.
-			os := distroInParentheses(value[end:])
-			score := p.score
-			if version == "" {
-				score = p.versionless
+			// Only comments immediately following this token belong to it.
+			rest := strings.TrimSpace(value[tokenEnd:])
+			os := ""
+			if strings.HasPrefix(rest, "(") {
+				if close := strings.IndexByte(rest, ')'); close >= 0 {
+					os = distroHint(rest[1:close])
+					if os != "" {
+						tokenEnd = len(value) - len(rest) + close + 1
+					}
+				}
 			}
-			found = append(found, match{protocol: "HTTP", product: p.product, version: version, osHint: os, confidence: score, evidence: printableHeaderEvidence(p.rule, line)})
+			score := product.score
+			if version == "" {
+				score = product.versionless
+			}
+			found = append(found, match{protocol: "HTTP", product: product.product, version: version, osHint: os, confidence: score, evidence: printableHeaderEvidence(product.rule, value[idx:tokenEnd])})
 		}
 	}
 	if !headerSeen {
@@ -180,25 +191,6 @@ func distroHint(s string) string {
 	return "Debian"
 }
 
-func distroInParentheses(s string) string {
-	for start := 0; start < len(s); {
-		rel := strings.IndexByte(s[start:], '(')
-		if rel < 0 {
-			return ""
-		}
-		start += rel + 1
-		end := strings.IndexByte(s[start:], ')')
-		if end < 0 {
-			return ""
-		}
-		if hint := distroHint(s[start : start+end]); hint != "" {
-			return hint
-		}
-		start += end + 1
-	}
-	return ""
-}
-
 func mysqlMatch(b []byte) (match, bool) {
 	if len(b) < 8 || b[3] != 0 || b[4] != 0x0a {
 		return match{}, false
@@ -245,7 +237,7 @@ func ftpMatches(s string) []match {
 	if !(strings.HasPrefix(line, "220 ") || strings.HasPrefix(line, "220-")) {
 		return nil
 	}
-	lower := strings.ToLower(line)
+	lower := asciiLower(line)
 	type fp struct{ name, product, rule string }
 	for _, p := range []fp{{"proftpd", "ProFTPD", "ftp.proftpd"}, {"vsftpd", "vsFTPd", "ftp.vsftpd"}, {"pure-ftpd", "Pure-FTPd", "ftp.pureftpd"}} {
 		idx := strings.Index(lower, p.name)
@@ -281,7 +273,7 @@ func ftpMatches(s string) []match {
 		}
 		return []match{{protocol: "FTP", product: p.product, version: version, confidence: score, evidence: evidence(p.rule, "banner", []byte(line))}}
 	}
-	if strings.Contains(lower, "ftp") || strings.Contains(lower, "service ready") {
+	if ftpWord.MatchString(line) {
 		return []match{{protocol: "FTP", confidence: .60, evidence: evidence("protocol.ftp", "banner", []byte(line))}}
 	}
 	return nil
@@ -304,4 +296,15 @@ func tlsMatch(b []byte) (match, bool) {
 		return match{}, false
 	}
 	return match{protocol: "TLS", confidence: .50, evidence: binaryEvidence("tls.record_prefix", b[:min(len(b), 9)])}, true
+}
+
+// ASCII-only folding preserves byte offsets into the original banner.
+func asciiLower(s string) string {
+	b := []byte(s)
+	for i, c := range b {
+		if c >= 'A' && c <= 'Z' {
+			b[i] = c + ('a' - 'A')
+		}
+	}
+	return string(b)
 }

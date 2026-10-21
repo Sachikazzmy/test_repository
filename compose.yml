@@ -1,0 +1,36 @@
+name: bannerfingerprint
+services:
+  server:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "${BANNER_BIND_HOST:-127.0.0.1}:${BANNER_HOST_PORT:-8080}:8080"
+    environment:
+      BANNER_LISTEN_ADDR: ":8080"
+      BANNER_MAX_BATCH_SIZE: "${BANNER_MAX_BATCH_SIZE:-1000}"
+      BANNER_MAX_BANNER_BYTES: "${BANNER_MAX_BANNER_BYTES:-65536}"
+      BANNER_WORKERS: "${BANNER_WORKERS:-8}"
+      BANNER_MAX_BODY_BYTES: "${BANNER_MAX_BODY_BYTES:-8388608}"
+      BANNER_REQUEST_TIMEOUT: "${BANNER_REQUEST_TIMEOUT:-10s}"
+      BANNER_READ_HEADER_TIMEOUT: "${BANNER_READ_HEADER_TIMEOUT:-5s}"
+      BANNER_WRITE_TIMEOUT: "${BANNER_WRITE_TIMEOUT:-15s}"
+      BANNER_IDLE_TIMEOUT: "${BANNER_IDLE_TIMEOUT:-60s}"
+      BANNER_SHUTDOWN_TIMEOUT: "${BANNER_SHUTDOWN_TIMEOUT:-10s}"
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:8080/healthz"]
+      interval: 10s
+      timeout: 3s
+      start_period: 5s
+      retries: 3
+    stop_grace_period: 65s
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    pids_limit: 256
+    restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"

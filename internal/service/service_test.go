@@ -6,6 +6,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"bannerfingerprint/internal/contract"
 )
@@ -157,6 +158,29 @@ func TestBannerLengthBoundaryAndInvalidEncodingDoNotCallRecognizer(t *testing.T)
 	}
 	if calls != 1 {
 		t.Fatalf("recognizer calls = %d, want 1", calls)
+	}
+}
+
+func TestIdentifyBatchExpiredDeadlineReturnsNoPartialResults(t *testing.T) {
+	calls := 0
+	service, err := New(identifyFunc(func(context.Context, contract.Record) (contract.Identification, error) {
+		calls++
+		return contract.EmptyIdentification(), nil
+	}), testConfig())
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithDeadline(context.Background(), time.Unix(0, 0))
+	defer cancel()
+	results, err := service.IdentifyBatch(ctx, []contract.Record{validRecord(1, "valid")})
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("IdentifyBatch error = %v, want context.DeadlineExceeded", err)
+	}
+	if results != nil {
+		t.Fatalf("deadline returned results: %#v", results)
+	}
+	if calls != 0 {
+		t.Fatalf("recognizer calls = %d, want 0", calls)
 	}
 }
 

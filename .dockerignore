@@ -1,0 +1,15 @@
+.git
+.codex
+.agents
+.aws
+**/*_test.go
+**/testdata
+testdata
+tests
+docs
+*.log
+coverage*
+banner-server
+
+.env
+.env.*

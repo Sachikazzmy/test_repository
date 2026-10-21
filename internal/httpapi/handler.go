@@ -8,6 +8,7 @@ import (
 	"io"
 	"mime"
 	"net/http"
+	"reflect"
 	"strings"
 
 	"bannerfingerprint/internal/contract"
@@ -20,7 +21,7 @@ type api struct {
 
 // New creates the HTTP API handler using the frozen shared contract.
 func New(batch contract.BatchIdentifier, config contract.HTTPConfig) (http.Handler, error) {
-	if batch == nil {
+	if batch == nil || isNilDependency(batch) {
 		return nil, &contract.Error{Code: contract.CodeInvalidConfig, Message: "批量识别服务不能为空"}
 	}
 	if err := contract.ValidateHTTPConfig(config); err != nil {
@@ -71,6 +72,17 @@ func (a *api) identify(w http.ResponseWriter, r *http.Request) {
 	}
 	body, err := io.ReadAll(r.Body)
 	if err != nil {
+		// Do not let net/http drain an incomplete body after the read deadline
+		// is reset: the peer may never send the remaining bytes. Closing this
+		// connection lets the timeout response be flushed immediately.
+		w.Header().Set("Connection", "close")
+		// net/http can cancel the request context as a consequence of a read
+		// timeout. Preserve the actual read failure instead of treating that
+		// cancellation as a client disconnect.
+		if isTimeout(err) {
+			a.writeError(w, http.StatusGatewayTimeout, contract.CodeRequestTimeout, "请求处理超时")
+			return
+		}
 		if r.Context().Err() != nil {
 			a.handleContextEnd(w, r)
 			return
@@ -78,10 +90,6 @@ func (a *api) identify(w http.ResponseWriter, r *http.Request) {
 		var maxErr *http.MaxBytesError
 		if errors.As(err, &maxErr) {
 			a.writeError(w, http.StatusRequestEntityTooLarge, contract.CodeBodyTooLarge, "请求体超过大小限制")
-			return
-		}
-		if isTimeout(err) {
-			a.writeError(w, http.StatusGatewayTimeout, contract.CodeRequestTimeout, "请求处理超时")
 			return
 		}
 		a.writeError(w, http.StatusBadRequest, contract.CodeInvalidRequest, "请求体无法读取")
@@ -162,4 +170,15 @@ func writeJSON(w http.ResponseWriter, status int, value any) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
 	_ = json.NewEncoder(w).Encode(value)
+}
+
+// Reject typed nil implementations as well as a nil interface.
+func isNilDependency(value any) bool {
+	v := reflect.ValueOf(value)
+	switch v.Kind() {
+	case reflect.Chan, reflect.Func, reflect.Interface, reflect.Map, reflect.Pointer, reflect.Slice:
+		return v.IsNil()
+	default:
+		return false
+	}
 }
